@@ -1,0 +1,21 @@
+name: Auditoria de Pull Requests
+
+on:
+  # Roda agendado (Cron: toda segunda-feira às 09:00 UTC)
+  schedule:
+    - cron: '0 9 * * 1'
+  # Permite que você clique em um botão no site do GitHub para rodar manualmente a qualquer momento
+  workflow_dispatch:
+
+jobs:
+  verificar-revisores:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Listar PRs sem revisores ou com apenas 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr list --state open --limit 100 --json number,title,url,reviewRequests --jq '.[] | select((.reviewRequests | length) <= 1) | "#\(.number) \(.title) - \(.url) (Revisores: \(.reviewRequests | length))"'
