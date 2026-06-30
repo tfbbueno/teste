@@ -1,21 +1,42 @@
-name: Auditoria de Pull Requests
+name: Alerta de PRs no Discord
 
 on:
-  # Roda agendado (Cron: toda segunda-feira às 09:00 UTC)
   schedule:
-    - cron: '0 9 * * 1'
-  # Permite que você clique em um botão no site do GitHub para rodar manualmente a qualquer momento
-  workflow_dispatch:
+    - cron: '30 12 * * *' # Todos os dias às 08:30 da manhã (Fuso UTC-4 / Cuiabá)
+  workflow_dispatch: # Botão de rodar manualmente
+
+permissions:
+  pull-requests: read
+  contents: read
 
 jobs:
-  verificar-revisores:
+  notificar-discord:
     runs-on: ubuntu-latest
     steps:
       - name: Verificar código do repositório
         uses: actions/checkout@v4
 
-      - name: Listar PRs sem revisores ou com apenas 1
+      - name: Buscar PRs e Preparar Mensagem
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr list --state open --limit 100 --json number,title,url,reviewRequests --jq '.[] | select((.reviewRequests | length) <= 1) | "#\(.number) \(.title) - \(.url) (Revisores: \(.reviewRequests | length))"'
+          # 1. Busca os PRs e formata com Markdown (Links clicáveis para o Discord)
+          gh pr list --state open --limit 50 --json number,title,url,reviewRequests --jq '.[] | select((.reviewRequests | length) <= 1) | "- [#\(.number)](\(.url)) \(.title) *(Revisores: \(.reviewRequests | length))*"' > lista.txt
+
+          # 2. Valida se existem PRs nessa condição
+          if [ ! -s lista.txt ]; then
+            echo "**Repositório limpo!** Não temos nenhum Pull Request aberto precisando de revisores." > mensagem.txt
+          else
+            echo -e "⚠️ **Atenção Equipe! Temos PRs aguardando revisores:**\n" > mensagem.txt
+            cat lista.txt >> mensagem.txt
+          fi
+
+      - name: Enviar para o Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          # Empacota a mensagem em JSON de forma segura (evita quebra de linha estragar o comando)
+          jq -n --arg msg "$(cat mensagem.txt)" '{content: $msg}' > payload.json
+          
+          # Dispara para o Webhook do Discord
+          curl -H "Content-Type: application/json" -X POST -d @payload.json "$DISCORD_WEBHOOK"
